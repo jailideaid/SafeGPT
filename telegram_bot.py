@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import time
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -50,6 +51,11 @@ def save_user_langs():
     except Exception as e:
         print("Failed to save user langs:", e)
 
+# === Anti-Flood (3 detik) ===
+LAST_MESSAGE_TIME = {}
+FLOOD_DELAY = 3  # detik
+
+
 # === Build SAFE system prompt ===
 def make_system_prompt(lang_code: str) -> str:
     if lang_code == "en":
@@ -64,7 +70,6 @@ def make_system_prompt(lang_code: str) -> str:
             "Selalu menjawab dalam Bahasa Indonesia. "
             "Tolak permintaan yang berbahaya, ilegal, atau tidak etis dan berikan alternatif aman.\n\n"
         )
-
     return safety + BASE_PROMPT
 
 
@@ -108,7 +113,6 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ Bahasa Indonesia diset. Anda dapat mengirim pesan sekarang.",
             parse_mode="Markdown"
         )
-
     elif data == "lang_en":
         USER_LANGS[user_id] = "en"
         save_user_langs()
@@ -116,7 +120,6 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ English set. You can send messages now.",
             parse_mode="Markdown"
         )
-
     else:
         await query.edit_message_text("Language selection error. Use /start.")
 
@@ -126,22 +129,32 @@ def get_user_lang(user_id: int) -> str:
     return USER_LANGS.get(str(user_id), "id")
 
 
-# === MAIN MESSAGE HANDLER (with @mention filter) ===
+# === MAIN MESSAGE HANDLER (with mention + anti-flood) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = context.bot.username
     user_msg = update.message.text or ""
     chat_type = update.message.chat.type
+    user_id = update.message.from_user.id
 
-    # === GROUP RULE: MUST TAG BOT ===
+    # === ✅ ANTI FLOOD 3 DETIK ===
+    now = time.time()
+    last = LAST_MESSAGE_TIME.get(user_id, 0)
+
+    if now - last < FLOOD_DELAY:
+        await update.message.reply_text("⏳ Slowmode active (3 sec). Please wait...")
+        return
+
+    LAST_MESSAGE_TIME[user_id] = now
+
+    # === ✅ GROUP RULE: MUST TAG BOT ===
     if chat_type in ["group", "supergroup"]:
         if user_msg.startswith("/"):
-            pass  # commands always allowed
+            pass
         else:
             if f"@{bot_username}" not in user_msg:
-                return  # ignore silently if no mention
+                return
 
     # === Build Safe Prompt ===
-    user_id = update.message.from_user.id
     lang = get_user_lang(user_id)
     system_prompt = make_system_prompt(lang)
 
