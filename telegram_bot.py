@@ -27,7 +27,7 @@ SITE_URL = "https://github.com/jailideaid/SafeGPT"
 SITE_NAME = "SafeGPT CLI [ Ethical & Secure ✅ ]"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# === Load base system prompt (optional) ===
+# === Load base system prompt ===
 if os.path.exists(PROMPT_FILE):
     with open(PROMPT_FILE, "r", encoding="utf-8") as f:
         BASE_PROMPT = f.read()
@@ -52,31 +52,27 @@ def save_user_langs():
 
 # === Build SAFE system prompt ===
 def make_system_prompt(lang_code: str) -> str:
-    """
-    Creates a SAFE system prompt per language.
-    Refuses illegal/dangerous requests and offers safe alternatives.
-    """
     if lang_code == "en":
         safety = (
-            "You are SafeGPT — a helpful, ethical AI assistant. "
-            "Always answer in English. "
-            "You must refuse harmful, illegal, unethical, or dangerous instructions, "
-            "and offer safe, educational alternatives. "
-            "Be friendly, supportive, and clear.\n\n"
+            "You are SafeGPT — an ethical, safe, and helpful AI assistant. "
+            "Always answer in English. Refuse illegal, unethical, or harmful requests "
+            "and offer safe educational alternatives.\n\n"
         )
     else:
         safety = (
-            "Kamu adalah SafeGPT — asisten AI yang aman, etis, dan membantu. "
-            "Selalu jawab dalam Bahasa Indonesia. "
-            "Tolak semua permintaan yang berbahaya, ilegal, atau tidak etis, "
-            "dan berikan alternatif yang aman & edukatif. "
-            "Gunakan nada santai, suportif, dan ramah.\n\n"
+            "Anda adalah SafeGPT — asisten AI yang aman, etis, dan membantu. "
+            "Selalu menjawab dalam Bahasa Indonesia. "
+            "Tolak permintaan yang berbahaya, ilegal, atau tidak etis dan berikan alternatif aman.\n\n"
         )
 
     return safety + BASE_PROMPT
 
-# === /start handler: show inline language buttons ===
+
+# === /start handler ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_user = await context.bot.get_me()
+    context.bot.username = bot_user.username
+
     keyboard = [
         [
             InlineKeyboardButton("🇮🇩 Indonesian", callback_data="lang_id"),
@@ -88,14 +84,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         f"👋 Welcome to {SITE_NAME}\n"
         f"\n"
-        f"🤖 Model AI : DeepSeekV3\n"
+        f"🤖 Model : DeepSeekV3\n"
         f"🌐 Repo : {SITE_URL}\n"
         f"\n"
         f"Please choose your language / Silakan pilih bahasa:"
     )
+
     await update.message.reply_text(msg, reply_markup=reply_markup)
 
-# === Callback for inline buttons ===
+
+# === Callback for language selection ===
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -106,24 +104,45 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "lang_id":
         USER_LANGS[user_id] = "id"
         save_user_langs()
-        await query.edit_message_text("✅ Bahasa diset ke *Bahasa Indonesia*. Silakan kirim pesan sekarang.", parse_mode="Markdown")
+        await query.edit_message_text(
+            "✅ Bahasa Indonesia diset. Anda dapat mengirim pesan sekarang.",
+            parse_mode="Markdown"
+        )
+
     elif data == "lang_en":
         USER_LANGS[user_id] = "en"
         save_user_langs()
-        await query.edit_message_text("✅ Language set to *English*. You can send a message now.", parse_mode="Markdown")
-    else:
-        await query.edit_message_text("Language selection error. Try /start again.")
+        await query.edit_message_text(
+            "✅ English set. You can send messages now.",
+            parse_mode="Markdown"
+        )
 
-# === Check user language ===
+    else:
+        await query.edit_message_text("Language selection error. Use /start.")
+
+
+# === Get user language ===
 def get_user_lang(user_id: int) -> str:
     return USER_LANGS.get(str(user_id), "id")
 
-# === HANDLE MESSAGES ===
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_msg = update.message.text or ""
-    lang = get_user_lang(user_id)
 
+# === MAIN MESSAGE HANDLER (with @mention filter) ===
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_username = context.bot.username
+    user_msg = update.message.text or ""
+    chat_type = update.message.chat.type
+
+    # === GROUP RULE: MUST TAG BOT ===
+    if chat_type in ["group", "supergroup"]:
+        if user_msg.startswith("/"):
+            pass  # commands always allowed
+        else:
+            if f"@{bot_username}" not in user_msg:
+                return  # ignore silently if no mention
+
+    # === Build Safe Prompt ===
+    user_id = update.message.from_user.id
+    lang = get_user_lang(user_id)
     system_prompt = make_system_prompt(lang)
 
     payload = {
@@ -137,6 +156,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {
         "Authorization": f"Bearer {MODEL_CONFIG['key']}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/jailideaid/SafeGPT",
+        "X-Title": "SafeGPT Telegram Bot",
     }
 
     try:
@@ -155,31 +176,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = f"⚠️ API error: HTTP {res.status_code} — {res.text}"
         else:
             data = res.json()
-            if "choices" in data and len(data["choices"]) > 0:
-                reply = data["choices"][0]["message"]["content"]
-            else:
-                reply = f"⚠️ Tidak ada respon valid dari API."
+            reply = (
+                data["choices"][0]["message"]["content"]
+                if "choices" in data else "⚠️ No valid response."
+            )
     except Exception as e:
-        reply = f"❌ Error contacting API: {e}"
+        reply = f"❌ API error: {e}"
 
     await update.message.reply_text(reply)
 
-# === Manual language command ===
+
+# === /setlang ===
 async def setlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     user_id = str(update.message.from_user.id)
+
     if not args:
-        await update.message.reply_text("Usage: /setlang id  or /setlang en")
+        await update.message.reply_text("Usage: /setlang id or /setlang en")
         return
+
     code = args[0].lower()
+
     if code in ("id", "en"):
         USER_LANGS[user_id] = code
         save_user_langs()
-        await update.message.reply_text(f"Language set to {code}")
+        await update.message.reply_text(f"✅ Language set to {code}")
     else:
         await update.message.reply_text("Unknown language code. Use 'id' or 'en'.")
 
-# === Build bot ===
+
+# === Build Bot ===
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -187,7 +213,8 @@ app.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
 app.add_handler(CommandHandler("setlang", setlang_cmd))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# === Run ===
+
+# === Run Bot ===
 def run_bot():
-    print("🚀 SafeGPT Telegram Bot Running.... (Model: DeepSeek)")
+    print("🚀 SafeGPT Telegram Bot Running... (DeepSeek Model)")
     app.run_polling()
