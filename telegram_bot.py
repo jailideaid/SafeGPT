@@ -55,7 +55,6 @@ def save_user_langs():
 LAST_MESSAGE_TIME = {}
 FLOOD_DELAY = 3  # detik
 
-
 # === Build SAFE system prompt ===
 def make_system_prompt(lang_code: str) -> str:
     if lang_code == "en":
@@ -76,7 +75,7 @@ def make_system_prompt(lang_code: str) -> str:
 # === /start handler ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_user = await context.bot.get_me()
-    context.bot.username = bot_user.username
+    context.bot_data["username"] = bot_user.username 
 
     keyboard = [
         [
@@ -96,7 +95,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(msg, reply_markup=reply_markup)
-
 
 # === Callback for language selection ===
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,10 +126,9 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_user_lang(user_id: int) -> str:
     return USER_LANGS.get(str(user_id), "id")
 
-
 # === MAIN MESSAGE HANDLER (with mention + anti-flood) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bot_username = context.bot.username
+    bot_username = context.bot_data.get("username", "")   # ✅ FIX
     user_msg = update.message.text or ""
     chat_type = update.message.chat.type
     user_id = update.message.from_user.id
@@ -231,3 +228,4 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 def run_bot():
     print("🚀 SafeGPT Telegram Bot Running... (DeepSeek Model)")
     app.run_polling()
+
