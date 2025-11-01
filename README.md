@@ -50,15 +50,15 @@ Command
 
 SafeGPT/
 
-`telegram_bot.py       # Main bot logic`
+`telegram_bot.py`        Main bot logic
 
-`main.py               # Bot launcher (Railway-compatible)`
+`main.py`                Bot launcher (Railway-compatible)
 
-`system-prompt.txt     # Optional custom system prompt`
+`system-prompt.txt`      Optional custom system prompt`
 
-`user_langs.json       # Auto-created language storage`
+`user_langs.json`        Auto-created language storage
 
-`safegpt_config.json   # Optional config file`
+`safegpt_config.json`    Optional config file
 
 `requirements.txt`
 
