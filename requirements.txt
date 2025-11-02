@@ -4,3 +4,4 @@ python-dotenv
 flask
 werkzeug
 gunicorn
+flask-cors
