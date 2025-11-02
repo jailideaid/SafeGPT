@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
+# --- KONFIGURASI RETRY API ---
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 2 # Detik awal jeda (2, 4, 8 detik)
+
 # === Config / Env ===
 CONFIG_FILE = "safegpt_config.json"
 PROMPT_FILE = "system-prompt.txt"
@@ -209,32 +213,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     reply = "❌ Terjadi kesalahan tak terduga."
-    try:
-        # Panggilan API eksternal (OpenRouter)
-        res = requests.post(
-            f"{MODEL_CONFIG['base_url']}/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-        
-        if res.status_code != 200:
-            reply = f"⚠️ API error: HTTP {res.status_code} — {res.text[:200]}"
-            logger.error(reply)
-        else:
-            data = res.json()
-            reply = (
-                data["choices"][0]["message"]["content"]
-                if "choices" in data and data["choices"] else "⚠️ No valid response from AI."
+    
+    # --- LOGIKA RETRY DITAMBAHKAN DI SINI ---
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Panggilan API eksternal (OpenRouter)
+            res = requests.post(
+                f"{MODEL_CONFIG['base_url']}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
             )
-    except requests.exceptions.RequestException as e:
-        reply = f"❌ Error koneksi API: {e}"
-        logger.error(reply)
-    except Exception as e:
-        reply = f"❌ Error saat memproses respons: {e}"
-        logger.error(reply)
+            
+            if res.status_code == 200:
+                data = res.json()
+                reply = (
+                    data["choices"][0]["message"]["content"]
+                    if "choices" in data and data["choices"] else "⚠️ No valid response from AI."
+                )
+                break # Berhasil, keluar dari loop retry
+            else:
+                # Handle non-200 status codes dari OpenRouter
+                error_msg = f"⚠️ API error: HTTP {res.status_code} — {res.text[:200]}"
+                logger.warning(f"Attempt {attempt + 1}: {error_msg}")
+                reply = error_msg
+                
+                # Coba lagi jika ini bukan percobaan terakhir
+                if attempt < MAX_RETRIES - 1:
+                    sleep_time = INITIAL_BACKOFF * (2 ** attempt)
+                    logger.info(f"Retrying in {sleep_time} seconds...")
+                    time.sleep(sleep_time)
+                else:
+                    # Ini adalah kegagalan final
+                    pass 
 
-    await update.message.reply_text(reply)
+        except requests.exceptions.RequestException as e:
+            # Handle timeout atau connection error
+            error_msg = f"❌ Error koneksi API (Attempt {attempt + 1}): {e}"
+            logger.warning(error_msg)
+            reply = error_msg
+            
+            if attempt < MAX_RETRIES - 1:
+                sleep_time = INITIAL_BACKOFF * (2 ** attempt)
+                logger.info(f"Retrying in {sleep_time} seconds...")
+                time.sleep(sleep_time)
+            else:
+                # Ini adalah kegagalan final
+                pass
+        except Exception as e:
+            # Handle error saat memproses JSON
+            reply = f"❌ Error saat memproses respons: {e}"
+            logger.error(reply)
+            break # Tidak perlu retry jika error parsing
+
+    # Jika loop selesai dan tidak berhasil (attempt == MAX_RETRIES - 1), gunakan pesan reply terakhir.
+    if attempt == MAX_RETRIES - 1 and res.status_code != 200:
+        await update.message.reply_text(reply + "\n\n❌ Gagal setelah semua percobaan.")
+    elif attempt == MAX_RETRIES - 1 and res.status_code == 200:
+        await update.message.reply_text(reply)
+    else:
+        await update.message.reply_text(reply)
 
 
 # === /setlang ===
