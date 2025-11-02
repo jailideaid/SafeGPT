@@ -26,7 +26,7 @@ def ask_model(messages):
         "messages": messages,
     }
 
-    res = requests.post(f"{BASE_URL}/chat/completions", headers=headers, json=payload)
+    res = requests.post(f"{BASE_URL}/chat/completions", headers=headers, json=payload, timeout=25)
     data = res.json()
 
     if "choices" not in data:
@@ -52,5 +52,6 @@ def chat():
 
 
 def start_api():
-    print("✅ Flask API Running on port 8000")
-    app.run(host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))  # ✅ FIX WAJIB
+    print(f"✅ Flask API Running on port {port}")
+    app.run(host="0.0.0.0", port=port)
