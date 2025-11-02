@@ -14,20 +14,15 @@ from telegram.ext import (
 )
 import logging
 
-# Konfigurasi Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- SOLUSI: MENCEGAH SPAM LOG GETUPDATES ---
-# Naikkan level logging untuk library pihak ketiga agar pesan "200 OK" dari polling 
-# tidak membanjiri log (dan salah dilabeli sebagai error oleh lingkungan hosting).
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
-# --- KONFIGURASI RETRY API ---
 MAX_RETRIES = 3
-INITIAL_BACKOFF = 2 # Detik awal jeda (2, 4, 8 detik)
+INITIAL_BACKOFF = 2 
 
 # === Config / Env ===
 CONFIG_FILE = "safegpt_config.json"
@@ -37,12 +32,12 @@ USER_LANG_FILE = "user_langs.json"
 MODEL_CONFIG = {
     "name": "deepseek/deepseek-chat",
     "base_url": "https://openrouter.ai/api/v1",
-    "key": os.getenv("OPENROUTER_KEY"), # Digunakan oleh Bot
+    "key": os.getenv("OPENROUTER_KEY"), 
 }
 
 SITE_URL = "https://github.com/jailideaid/SafeGPT"
 SITE_NAME = "SafeGPT CLI [ Ethical & Secure ✅ ]"
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") # Digunakan oleh Bot
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") 
 
 # === Load base system prompt ===
 BASE_PROMPT = "You are SafeGPT running on Telegram."
@@ -70,9 +65,8 @@ def save_user_langs():
     except Exception as e:
         logger.error(f"Failed to save user langs: {e}")
 
-# === Anti-Flood (3 detik) ===
 LAST_MESSAGE_TIME = {}
-FLOOD_DELAY = 3  # detik
+FLOOD_DELAY = 3  
 
 # === Build SAFE system prompt ===
 def make_system_prompt(lang_code: str) -> str:
@@ -214,10 +208,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = "❌ Terjadi kesalahan tak terduga."
     
-    # --- LOGIKA RETRY DITAMBAHKAN DI SINI ---
     for attempt in range(MAX_RETRIES):
         try:
-            # Panggilan API eksternal (OpenRouter)
+            
             res = requests.post(
                 f"{MODEL_CONFIG['base_url']}/chat/completions",
                 headers=headers,
@@ -231,24 +224,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     data["choices"][0]["message"]["content"]
                     if "choices" in data and data["choices"] else "⚠️ No valid response from AI."
                 )
-                break # Berhasil, keluar dari loop retry
+                break # 
             else:
-                # Handle non-200 status codes dari OpenRouter
+                
                 error_msg = f"⚠️ API error: HTTP {res.status_code} — {res.text[:200]}"
                 logger.warning(f"Attempt {attempt + 1}: {error_msg}")
                 reply = error_msg
                 
-                # Coba lagi jika ini bukan percobaan terakhir
+              
                 if attempt < MAX_RETRIES - 1:
                     sleep_time = INITIAL_BACKOFF * (2 ** attempt)
                     logger.info(f"Retrying in {sleep_time} seconds...")
                     time.sleep(sleep_time)
                 else:
-                    # Ini adalah kegagalan final
+                   
                     pass 
 
         except requests.exceptions.RequestException as e:
-            # Handle timeout atau connection error
+            
             error_msg = f"❌ Error koneksi API (Attempt {attempt + 1}): {e}"
             logger.warning(error_msg)
             reply = error_msg
@@ -258,15 +251,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"Retrying in {sleep_time} seconds...")
                 time.sleep(sleep_time)
             else:
-                # Ini adalah kegagalan final
+             
                 pass
         except Exception as e:
-            # Handle error saat memproses JSON
+           
             reply = f"❌ Error saat memproses respons: {e}"
             logger.error(reply)
-            break # Tidak perlu retry jika error parsing
+            break 
 
-    # Jika loop selesai dan tidak berhasil (attempt == MAX_RETRIES - 1), gunakan pesan reply terakhir.
+   
     if attempt == MAX_RETRIES - 1 and res.status_code != 200:
         await update.message.reply_text(reply + "\n\n❌ Gagal setelah semua percobaan.")
     elif attempt == MAX_RETRIES - 1 and res.status_code == 200:
@@ -305,7 +298,6 @@ def run_bot():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Daftarkan Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
     app.add_handler(CommandHandler("setlang", setlang_cmd))
@@ -313,3 +305,4 @@ def run_bot():
 
     logger.info("🚀 SafeGPT Telegram Bot Running... (DeepSeek Model via OpenRouter)")
     app.run_polling()
+
