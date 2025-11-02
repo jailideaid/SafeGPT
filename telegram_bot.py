@@ -14,12 +14,16 @@ from telegram.ext import (
 )
 import logging
 
-# Logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Konfigurasi Logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# --- SOLUSI: MENCEGAH SPAM LOG GETUPDATES ---
+# Naikkan level logging untuk library pihak ketiga agar pesan "200 OK" dari polling 
+# tidak membanjiri log (dan salah dilabeli sebagai error oleh lingkungan hosting).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
 # === Config / Env ===
 CONFIG_FILE = "safegpt_config.json"
@@ -29,14 +33,14 @@ USER_LANG_FILE = "user_langs.json"
 MODEL_CONFIG = {
     "name": "deepseek/deepseek-chat",
     "base_url": "https://openrouter.ai/api/v1",
-    "key": os.getenv("OPENROUTER_KEY"),
+    "key": os.getenv("OPENROUTER_KEY"), # Digunakan oleh Bot
 }
 
 SITE_URL = "https://github.com/jailideaid/SafeGPT"
 SITE_NAME = "SafeGPT CLI [ Ethical & Secure ✅ ]"
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") # Digunakan oleh Bot
 
-# === Load system prompt ===
+# === Load base system prompt ===
 BASE_PROMPT = "You are SafeGPT running on Telegram."
 if os.path.exists(PROMPT_FILE):
     try:
@@ -45,7 +49,7 @@ if os.path.exists(PROMPT_FILE):
     except Exception as e:
         logger.warning(f"Failed to load system prompt: {e}")
 
-# === Load user languages ===
+# === Ensure user language storage exists ===
 USER_LANGS = {}
 if Path(USER_LANG_FILE).exists():
     try:
@@ -55,36 +59,43 @@ if Path(USER_LANG_FILE).exists():
         USER_LANGS = {}
 
 def save_user_langs():
+    """Menyimpan konfigurasi bahasa pengguna."""
     try:
         with open(USER_LANG_FILE, "w", encoding="utf-8") as f:
             json.dump(USER_LANGS, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save user langs: {e}")
 
-# === Anti-Flood ===
+# === Anti-Flood (3 detik) ===
 LAST_MESSAGE_TIME = {}
-FLOOD_DELAY = 3  # seconds
+FLOOD_DELAY = 3  # detik
 
+# === Build SAFE system prompt ===
 def make_system_prompt(lang_code: str) -> str:
+    """Membuat prompt sistem berdasarkan bahasa terpilih."""
     if lang_code == "en":
         safety = (
             "You are SafeGPT — an ethical, safe, and helpful AI assistant. "
-            "Always answer in English. Refuse illegal, unethical, or harmful "
-            "requests and provide safe alternatives.\n\n"
+            "Always answer in English. Refuse illegal, unethical, or harmful requests "
+            "and offer safe educational alternatives.\n\n"
         )
     else:
         safety = (
             "Anda adalah SafeGPT — asisten AI yang aman, etis, dan membantu. "
             "Selalu menjawab dalam Bahasa Indonesia. "
-            "Tolak permintaan yang berbahaya, ilegal, atau tidak etis dan "
-            "berikan alternatif aman.\n\n"
+            "Tolak permintaan yang berbahaya, ilegal, atau tidak etis dan berikan alternatif aman.\n\n"
         )
     return safety + BASE_PROMPT
 
-# === /start ===
+
+# === /start handler ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menampilkan pesan selamat datang dan pilihan bahasa."""
+    if update.message is None:
+        return
+        
     bot_user = await context.bot.get_me()
-    context.bot_data["username"] = bot_user.username
+    context.bot_data["username"] = bot_user.username 
 
     keyboard = [
         [
@@ -92,6 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🇺🇸 English", callback_data="lang_en"),
         ]
     ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     msg = (
         f"👋 Welcome to {SITE_NAME}\n"
@@ -99,56 +111,74 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 Model : DeepSeekV3 (via OpenRouter)\n"
         f"🌐 Repo : {SITE_URL}\n"
         f"\n"
-        f"Choose your language:"
+        f"Please choose your language / Silakan pilih bahasa:"
     )
 
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(msg, reply_markup=reply_markup)
 
-# === language selection ===
+# === Callback for language selection ===
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menangani pemilihan bahasa dari tombol inline."""
     query = update.callback_query
     await query.answer()
 
     user_id = str(query.from_user.id)
+    data = query.data
 
-    if query.data == "lang_id":
+    if data == "lang_id":
         USER_LANGS[user_id] = "id"
         save_user_langs()
-        await query.edit_message_text("✅ Bahasa Indonesia diset.")
-    elif query.data == "lang_en":
+        await query.edit_message_text(
+            "✅ Bahasa Indonesia diset. Anda dapat mengirim pesan sekarang.",
+            parse_mode="Markdown"
+        )
+    elif data == "lang_en":
         USER_LANGS[user_id] = "en"
         save_user_langs()
-        await query.edit_message_text("✅ English set.")
+        await query.edit_message_text(
+            "✅ English set. You can send messages now.",
+            parse_mode="Markdown"
+        )
     else:
-        await query.edit_message_text("Error. Use /start")
+        await query.edit_message_text("Language selection error. Use /start.")
 
-# === get language ===
-def get_user_lang(uid):
-    return USER_LANGS.get(str(uid), "id")
 
-# === message handler ===
+# === Get user language ===
+def get_user_lang(user_id: int) -> str:
+    """Mendapatkan kode bahasa pengguna."""
+    return USER_LANGS.get(str(user_id), "id")
+
+# === MAIN MESSAGE HANDLER (with mention + anti-flood) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menangani pesan teks dan memanggil OpenRouter API."""
     if update.message is None or update.message.text is None:
         return
-
-    bot_username = context.bot_data.get("username", "")
+        
+    bot_username = context.bot_data.get("username", "")  
     user_msg = update.message.text
     chat_type = update.message.chat.type
-    uid = update.message.from_user.id
+    user_id = update.message.from_user.id
 
-    # Anti-flood
+    # === ANTI FLOOD 3 DETIK ===
     now = time.time()
-    if now - LAST_MESSAGE_TIME.get(uid, 0) < FLOOD_DELAY:
-        await update.message.reply_text("⏳ Slowmode 3 detik bro...")
+    last = LAST_MESSAGE_TIME.get(user_id, 0)
+
+    if now - last < FLOOD_DELAY:
+        await update.message.reply_text("⏳ Slowmode active (3 sec). Please wait...")
         return
-    LAST_MESSAGE_TIME[uid] = now
 
-    # Group rule: must mention bot
+    LAST_MESSAGE_TIME[user_id] = now
+
+    # === GROUP RULE: MUST TAG BOT ===
     if chat_type in ["group", "supergroup"]:
-        if not user_msg.startswith("/") and f"@{bot_username}" not in user_msg:
-            return
+        if user_msg.startswith("/"):
+            pass
+        else:
+            if f"@{bot_username}" not in user_msg:
+                return
 
-    lang = get_user_lang(uid)
+    # === Build Safe Prompt ===
+    lang = get_user_lang(user_id)
     system_prompt = make_system_prompt(lang)
 
     payload = {
@@ -159,57 +189,89 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     }
 
+    # Cek kunci API OpenRouter
+    api_key = MODEL_CONFIG['key']
+    if not api_key:
+        logger.error("OPENROUTER_KEY is not set.")
+        await update.message.reply_text("⚠️ API Key (OPENROUTER_KEY) tidak ditemukan. Mohon atur variabel lingkungan.")
+        return
+
     headers = {
-        "Authorization": f"Bearer {MODEL_CONFIG['key']}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": SITE_URL,
-        "X-Title": "SafeGPT Bot",
+        "X-Title": "SafeGPT Telegram Bot",
     }
 
     try:
+        await update.message.chat.send_action("typing")
+    except Exception:
+        pass
+
+    reply = "❌ Terjadi kesalahan tak terduga."
+    try:
+        # Panggilan API eksternal (OpenRouter)
         res = requests.post(
             f"{MODEL_CONFIG['base_url']}/chat/completions",
-            json=payload,
             headers=headers,
+            json=payload,
             timeout=30
         )
+        
         if res.status_code != 200:
-            reply = f"⚠️ API error {res.status_code}: {res.text}"
+            reply = f"⚠️ API error: HTTP {res.status_code} — {res.text[:200]}"
+            logger.error(reply)
         else:
             data = res.json()
-            reply = data["choices"][0]["message"]["content"]
+            reply = (
+                data["choices"][0]["message"]["content"]
+                if "choices" in data and data["choices"] else "⚠️ No valid response from AI."
+            )
+    except requests.exceptions.RequestException as e:
+        reply = f"❌ Error koneksi API: {e}"
+        logger.error(reply)
     except Exception as e:
-        reply = f"❌ API connection error: {e}"
+        reply = f"❌ Error saat memproses respons: {e}"
+        logger.error(reply)
 
     await update.message.reply_text(reply)
 
+
 # === /setlang ===
 async def setlang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /setlang id | en")
-        return
-    code = context.args[0].lower()
-    uid = str(update.message.from_user.id)
+    """Perintah untuk mengatur bahasa secara manual."""
+    args = context.args
+    user_id = str(update.message.from_user.id)
 
-    if code in ["id", "en"]:
-        USER_LANGS[uid] = code
+    if not args:
+        await update.message.reply_text("Penggunaan: /setlang id atau /setlang en")
+        return
+
+    code = args[0].lower()
+
+    if code in ("id", "en"):
+        USER_LANGS[user_id] = code
         save_user_langs()
         await update.message.reply_text(f"✅ Language set to {code}")
     else:
-        await update.message.reply_text("Unknown code.")
+        await update.message.reply_text("Kode bahasa tidak dikenal. Gunakan 'id' atau 'en'.")
 
-# === run bot ===
+
+# === Run Bot ===
 def run_bot():
+    """Menginisialisasi dan menjalankan bot dalam mode polling."""
     if not TELEGRAM_TOKEN:
-        print("❌ TELEGRAM_TOKEN missing.")
+        logger.error("FATAL: Variabel lingkungan TELEGRAM_TOKEN tidak ditemukan.")
+        print("Bot tidak dapat dijalankan karena TELEGRAM_TOKEN tidak ditemukan.")
         return
 
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    
+    # Daftarkan Handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
+    app.add_handler(CommandHandler("setlang", setlang_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
-    application.add_handler(CommandHandler("setlang", setlang_cmd))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("🚀 Telegram Bot Running...")
-    application.run_polling()
+    logger.info("🚀 SafeGPT Telegram Bot Running... (DeepSeek Model via OpenRouter)")
+    app.run_polling()
