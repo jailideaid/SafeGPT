@@ -1,7 +1,7 @@
 from server import start_api
-import telegram_bot
+from telegram_bot import run_bot
 import threading
 
 if __name__ == "__main__":
     threading.Thread(target=start_api).start()
-    telegram_bot.run_bot()
+    run_bot()
