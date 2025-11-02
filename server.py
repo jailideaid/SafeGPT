@@ -1,4 +1,3 @@
-# server.py
 import os
 import json
 from flask import Flask, request, jsonify
@@ -52,6 +51,6 @@ def chat():
 
 
 def start_api():
-    port = int(os.environ.get("PORT", 8000))  # ✅ FIX WAJIB
+    port = int(os.environ.get("PORT", 8000)) 
     print(f"✅ Flask API Running on port {port}")
     app.run(host="0.0.0.0", port=port)
