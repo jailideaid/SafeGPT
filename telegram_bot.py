@@ -185,6 +185,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},
         ],
+        "max_tokens: 2048"
     }
 
     # Cek kunci API OpenRouter
@@ -305,4 +306,5 @@ def run_bot():
 
     logger.info("🚀 SafeGPT Telegram Bot Running... (DeepSeek Model via OpenRouter)")
     app.run_polling()
+
 
