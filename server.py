@@ -13,11 +13,11 @@ MODEL = "deepseek/deepseek-chat"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 
-# ✅ STREAMING CLEAN — NO RAW, NO NOISE
+# ✅ STREAM HANDLER — AUTO PECAH KATA-PER-KATA
 def ask_model_stream(messages):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     payload = {
@@ -34,38 +34,34 @@ def ask_model_stream(messages):
         stream=True,
     ) as r:
 
-        for line in r.iter_lines(decode_unicode=True):
-            if not line:
+        for raw in r.iter_lines():
+            if not raw:
                 continue
 
-            if not line.startswith("data: "):
-                continue
+            chunk = raw.decode("utf-8")
 
-            data = line[6:].strip()
-            if data == "[DONE]":
-                break
+            if chunk.startswith("data: "):
+                chunk = chunk[6:]
+
+            if chunk == "[DONE]" or chunk.strip() == "":
+                continue
 
             try:
-                obj = json.loads(data)
+                data = json.loads(chunk)
+                delta = data["choices"][0]["delta"].get("content", "")
 
-                # ✅ Format OpenAI-like streaming
-                delta = obj["choices"][0]["delta"].get("content")
                 if delta:
-                    yield delta
-                    continue
-
-                # ✅ Format DeepSeek full message failback (jarang)
-                msg = obj["choices"][0].get("message", {}).get("content")
-                if msg:
-                    yield msg
+                    words = delta.split()            # ✅ pecah kata
+                    for w in words:
+                        yield w + " "                # ✅ kirim per kata
                     continue
 
             except:
-                # ✅ Jika error parse, SKIP — jangan kirim RAW
-                pass
+                # Kalau provider ngirim non-JSON, tetap kirim
+                yield chunk
 
 
-# ✅ ENDPOINT STREAM
+# ✅ ENDPOINT STREAMING (Flutter)
 @app.route("/api/chat-stream", methods=["POST"])
 def chat_stream():
     body = request.get_json()
@@ -73,15 +69,15 @@ def chat_stream():
 
     def generate():
         for token in ask_model_stream([
-            {"role": "system", "content": "Kamu adalah AI yang menjawab secara jelas, ringkas, dan natural dalam bahasa Indonesia."},
+            {"role": "system", "content": "SafeGPT"},
             {"role": "user", "content": msg},
         ]):
-            yield token
+            yield token + "\n"  # penting biar Flutter detect per chunk
 
     return Response(generate(), mimetype="text/plain")
 
 
-# ✅ ENDPOINT NORMAL (NON STREAM)
+# ✅ ENDPOINT NON-STREAM
 @app.route("/api/chat", methods=["POST"])
 def chat():
     body = request.json
@@ -93,7 +89,7 @@ def chat():
         json={
             "model": MODEL,
             "messages": [
-                {"role": "system", "content": "Kamu adalah AI yang menjawab secara jelas, ringkas, dan natural dalam bahasa Indonesia."},
+                {"role": "system", "content": "SafeGPT"},
                 {"role": "user", "content": msg}
             ]
         }
