@@ -23,7 +23,8 @@ def ask_model_stream(messages):
     payload = {
         "model": MODEL,
         "messages": messages,
-        "stream": True
+        "stream": True,
+        "max_output_tokens": 2048
     }
 
     with requests.post(
@@ -80,7 +81,7 @@ def chat_stream():
     def generate():
         for token in ask_model_stream([
             {"role": "system", "content": "SafeGPT"},
-            {"role": "user", "content": msg}
+            {"role": "user", "content": msg},
         ]):
             yield token + "\n"
 
