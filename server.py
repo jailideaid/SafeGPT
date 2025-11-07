@@ -96,7 +96,6 @@ def chat_stream():
 
     return Response(generate(), mimetype="text/plain")
 
-
 # --- NON-STREAM ENDPOINT ---
 @app.route("/api/chat", methods=["POST"])
 def chat():
