@@ -13,7 +13,7 @@ MODEL = "deepseek/deepseek-chat"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 
-# ✅ STREAMING FUNGSI
+# ✅ STREAMING FUNGSI (versi FIX)
 def ask_model_stream(messages):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -35,25 +35,42 @@ def ask_model_stream(messages):
         json=payload,
         stream=True,
     ) as r:
-        # setiap chunk token masuk
+
         for chunk in r.iter_lines():
-            if chunk:
-                text = chunk.decode("utf-8")
+            if not chunk:
+                continue
 
-                # bersihin prefix "data: "
-                if text.startswith("data: "):
-                    text = text[6:]
+            text = chunk.decode("utf-8")
 
-                if text == "[DONE]":
-                    break
+            # Optional log:
+            # print("RAW STREAM:", text)
 
-                try:
-                    data = json.loads(text)
+            if text.startswith("data: "):
+                text = text[6:]
+
+            if text == "[DONE]":
+                break
+
+            try:
+                data = json.loads(text)
+
+                # ✅ Format OpenAI (umum)
+                if "choices" in data and "delta" in data["choices"][0]:
                     delta = data["choices"][0]["delta"].get("content", "")
                     if delta:
                         yield delta
-                except:
-                    pass
+                        continue
+
+                # ✅ Format DeepSeek (kadang langsung message)
+                if "choices" in data and "message" in data["choices"][0]:
+                    content = data["choices"][0]["message"].get("content", "")
+                    if content:
+                        yield content
+                        continue
+
+            except Exception as e:
+                print("Parsing error:", e)
+                pass
 
 
 # ✅ ENDPOINT STREAMING UNTUK FLUTTER
@@ -70,11 +87,9 @@ def chat_stream():
             {"role": "system", "content": "You are SafeGPT Mobile API."},
             {"role": "user", "content": msg}
         ]):
-            # WAJIB TAMBAH \n supaya Flutter detect streaming
-            yield token + "\n"
+            yield token + "\n"  # wajib ada newline
 
     return Response(generate(), mimetype="text/plain")
-
 
 
 # ✅ ENDPOINT NORMAL (buat testing)
@@ -88,7 +103,6 @@ def chat():
         {"role": "user", "content": msg}
     ]
 
-    # NON STREAM
     res = requests.post(
         f"{BASE_URL}/chat/completions",
         headers={
