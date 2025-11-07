@@ -60,7 +60,6 @@ def chat_stream():
     msg = body.get("message")
 
     def generate():
-        buffer = ""
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
@@ -90,11 +89,8 @@ def chat_stream():
                 try:
                     data = json.loads(chunk)
                     delta = data["choices"][0]["delta"].get("content", "")
-                    if delta:
-                        words = delta.split(" ")
-                        for w in words:
-                            if w.strip():
-                                yield w + " "  # kirim langsung tiap kata
+                    for c in delta:  # kirim per karakter
+                        yield c
                 except:
                     yield chunk
 
