@@ -23,6 +23,7 @@ def ask_model(messages):
     payload = {
         "model": MODEL,
         "messages": messages,
+        "max_tokens": 2048
     }
 
     res = requests.post(f"{BASE_URL}/chat/completions", headers=headers, json=payload, timeout=25)
