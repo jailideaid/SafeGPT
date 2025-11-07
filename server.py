@@ -70,9 +70,11 @@ def chat_stream():
             {"role": "system", "content": "You are SafeGPT Mobile API."},
             {"role": "user", "content": msg}
         ]):
-            yield token
+            # WAJIB TAMBAH \n supaya Flutter detect streaming
+            yield token + "\n"
 
     return Response(generate(), mimetype="text/plain")
+
 
 
 # ✅ ENDPOINT NORMAL (buat testing)
