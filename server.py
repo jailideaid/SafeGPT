@@ -8,12 +8,10 @@ app = Flask(__name__)
 CORS(app)
 
 OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
-
 MODEL = "deepseek/deepseek-chat"
 BASE_URL = "https://openrouter.ai/api/v1"
 
-
-# ✅ STREAM HANDLER — AUTO PECAH KATA-PER-KATA
+# ✅ STREAM HANDLER — NATURAL CHUNK
 def ask_model_stream(messages):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -34,6 +32,7 @@ def ask_model_stream(messages):
         stream=True,
     ) as r:
 
+        buffer = ""
         for raw in r.iter_lines():
             if not raw:
                 continue
@@ -49,35 +48,39 @@ def ask_model_stream(messages):
             try:
                 data = json.loads(chunk)
                 delta = data["choices"][0]["delta"].get("content", "")
-
                 if delta:
-                    words = delta.split()            # ✅ pecah kata
-                    for w in words:
-                        yield w + " "                # ✅ kirim per kata
-                    continue
-
+                    buffer += delta
+                    # Kirim tiap newline atau tiap 50 karakter
+                    while "\n" in buffer or len(buffer) > 50:
+                        if "\n" in buffer:
+                            idx = buffer.index("\n")+1
+                        else:
+                            idx = 50
+                        yield buffer[:idx]
+                        buffer = buffer[idx:]
             except:
                 # Kalau provider ngirim non-JSON, tetap kirim
                 yield chunk
+        # Kirim sisa buffer
+        if buffer:
+            yield buffer
 
-
-# ✅ ENDPOINT STREAMING (Flutter)
+# ✅ STREAMING ENDPOINT
 @app.route("/api/chat-stream", methods=["POST"])
 def chat_stream():
     body = request.get_json()
     msg = body.get("message")
 
     def generate():
-        for token in ask_model_stream([
+        for chunk in ask_model_stream([
             {"role": "system", "content": "SafeGPT"},
             {"role": "user", "content": msg},
         ]):
-            yield token + "\n"  # penting biar Flutter detect per chunk
+            yield chunk  # langsung kirim chunk ke Flutter
 
     return Response(generate(), mimetype="text/plain")
 
-
-# ✅ ENDPOINT NON-STREAM
+# ✅ NON-STREAM
 @app.route("/api/chat", methods=["POST"])
 def chat():
     body = request.json
@@ -96,7 +99,6 @@ def chat():
     )
 
     return jsonify(res.json())
-
 
 def start_api():
     port = int(os.environ.get("PORT", 8000))
