@@ -24,7 +24,7 @@ def ask_model_stream(messages):
         "model": MODEL,
         "messages": messages,
         "stream": True,
-        "max_output_tokens": 2048
+        "max_tokens": 2048
     }
 
     with requests.post(
