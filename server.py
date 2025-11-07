@@ -60,13 +60,46 @@ def chat_stream():
     msg = body.get("message")
 
     def generate():
-        for token in ask_model_stream([
-            {"role": "system", "content": "SafeGPT"},
-            {"role": "user", "content": msg},
-        ]):
-            yield token
+        buffer = ""
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": MODEL,
+            "messages": [
+                {"role": "system", "content": "SafeGPT"},
+                {"role": "user", "content": msg}
+            ],
+            "stream": True,
+            "max_tokens": 2048
+        }
+
+        with requests.post(f"{BASE_URL}/chat/completions",
+                           headers=headers,
+                           json=payload,
+                           stream=True) as r:
+            for raw in r.iter_lines():
+                if not raw:
+                    continue
+                chunk = raw.decode("utf-8")
+                if chunk.startswith("data: "):
+                    chunk = chunk[6:]
+                if chunk in ("[DONE]", ""):
+                    continue
+                try:
+                    data = json.loads(chunk)
+                    delta = data["choices"][0]["delta"].get("content", "")
+                    if delta:
+                        words = delta.split(" ")
+                        for w in words:
+                            if w.strip():
+                                yield w + " "  # kirim langsung tiap kata
+                except:
+                    yield chunk
 
     return Response(generate(), mimetype="text/plain")
+
 
 # --- NON-STREAM ENDPOINT ---
 @app.route("/api/chat", methods=["POST"])
