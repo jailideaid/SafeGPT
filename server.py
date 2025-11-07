@@ -78,6 +78,7 @@ def chat_stream():
                            headers=headers,
                            json=payload,
                            stream=True) as r:
+
             for raw in r.iter_lines():
                 if not raw:
                     continue
@@ -88,13 +89,17 @@ def chat_stream():
                     continue
                 try:
                     data = json.loads(chunk)
+
+                    # Hanya ambil delta content, buang status/processing
                     delta = data["choices"][0]["delta"].get("content", "")
-                    for c in delta:  # kirim per karakter
-                        yield c
+                    for c in delta:
+                        yield c  # kirim per karakter
+
                 except:
-                    yield chunk
+                    continue  # skip kalau bukan JSON
 
     return Response(generate(), mimetype="text/plain")
+
 
 # --- NON-STREAM ENDPOINT ---
 @app.route("/api/chat", methods=["POST"])
