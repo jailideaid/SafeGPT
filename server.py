@@ -13,7 +13,7 @@ MODEL = "deepseek/deepseek-chat"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 
-# ✅ STREAMING UNIVERSAL — NGGAK ADA YG KETINGGALAN
+# ✅ STREAMING CLEAN — NO RAW, NO NOISE
 def ask_model_stream(messages):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -34,45 +34,38 @@ def ask_model_stream(messages):
         stream=True,
     ) as r:
 
-        for raw in r.iter_lines():
-            if not raw:
+        for line in r.iter_lines(decode_unicode=True):
+            if not line:
                 continue
 
-            chunk = raw.decode("utf-8")
-
-            # ✅ Buat debug (hapus kalau udah kelar)
-            print("RAW:", chunk)
-
-            if chunk.startswith("data: "):
-                chunk = chunk[6:]
-
-            if chunk.strip() == "" or chunk == "[DONE]":
+            if not line.startswith("data: "):
                 continue
 
-            # ✅ Coba parse JSON
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+
             try:
-                data = json.loads(chunk)
+                obj = json.loads(data)
 
-                # Format OpenAI:
-                if "choices" in data and "delta" in data["choices"][0]:
-                    delta = data["choices"][0]["delta"].get("content", "")
-                    if delta:
-                        yield delta
-                        continue
+                # ✅ Format OpenAI-like streaming
+                delta = obj["choices"][0]["delta"].get("content")
+                if delta:
+                    yield delta
+                    continue
 
-                # Format DeepSeek kadang:
-                if "choices" in data and "message" in data["choices"][0]:
-                    msg = data["choices"][0]["message"].get("content", "")
-                    if msg:
-                        yield msg
-                        continue
+                # ✅ Format DeepSeek full message failback (jarang)
+                msg = obj["choices"][0].get("message", {}).get("content")
+                if msg:
+                    yield msg
+                    continue
 
             except:
-                # ✅ Kalau RAW bukan JSON → kirim apa adanya!
-                yield chunk
+                # ✅ Jika error parse, SKIP — jangan kirim RAW
+                pass
 
 
-# ✅ ENDPOINT STREAMING
+# ✅ ENDPOINT STREAM
 @app.route("/api/chat-stream", methods=["POST"])
 def chat_stream():
     body = request.get_json()
@@ -80,15 +73,15 @@ def chat_stream():
 
     def generate():
         for token in ask_model_stream([
-            {"role": "system", "content": "SafeGPT"},
+            {"role": "system", "content": "Kamu adalah AI yang menjawab secara jelas, ringkas, dan natural dalam bahasa Indonesia."},
             {"role": "user", "content": msg},
         ]):
-            yield token + "\n"
+            yield token
 
     return Response(generate(), mimetype="text/plain")
 
 
-# ✅ NON STREAM TEST
+# ✅ ENDPOINT NORMAL (NON STREAM)
 @app.route("/api/chat", methods=["POST"])
 def chat():
     body = request.json
@@ -100,7 +93,7 @@ def chat():
         json={
             "model": MODEL,
             "messages": [
-                {"role": "system", "content": "SafeGPT"},
+                {"role": "system", "content": "Kamu adalah AI yang menjawab secara jelas, ringkas, dan natural dalam bahasa Indonesia."},
                 {"role": "user", "content": msg}
             ]
         }
