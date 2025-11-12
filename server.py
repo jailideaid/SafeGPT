@@ -69,7 +69,7 @@ def chat_stream():
                 {"role": "user", "content": msg}
             ],
             "stream": True,
-            "max_tokens": 2048
+            "max_tokens": 1000
         }
 
         with requests.post(f"{BASE_URL}/chat/completions",
