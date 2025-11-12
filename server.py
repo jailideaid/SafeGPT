@@ -11,7 +11,6 @@ OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 MODEL = "deepseek/deepseek-chat"
 BASE_URL = "https://openrouter.ai/api/v1"
 
-# --- STREAMING PER KATA ---
 def ask_model_stream(messages):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -53,7 +52,6 @@ def ask_model_stream(messages):
         if buffer:
             yield buffer
 
-# --- STREAM ENDPOINT ---
 @app.route("/api/chat-stream", methods=["POST"])
 def chat_stream():
     body = request.get_json()
@@ -90,18 +88,16 @@ def chat_stream():
                 try:
                     data = json.loads(chunk)
 
-                    # Hanya ambil delta content, buang status/processing
                     delta = data["choices"][0]["delta"].get("content", "")
                     for c in delta:
-                        yield c  # kirim per karakter
+                        yield c  
 
                 except:
-                    continue  # skip kalau bukan JSON
+                    continue  
 
     return Response(generate(), mimetype="text/plain")
 
 
-# --- NON-STREAM ENDPOINT ---
 @app.route("/api/chat", methods=["POST"])
 def chat():
     body = request.json
@@ -119,11 +115,9 @@ def chat():
     )
     return json.dumps(res.json())
 
-# --- START API FUNCTION ---
 def start_api():
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
 
-# --- optional: bisa dijalankan langsung ---
 if __name__ == "__main__":
     start_api()
